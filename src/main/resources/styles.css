@@ -1,0 +1,24 @@
+.root {
+    -fx-background-color: #222;
+}
+
+.button {
+    -fx-background-color: #555;
+    -fx-text-fill: white;
+    -fx-font-size: 14px;
+    -fx-padding: 10px 15px;
+    -fx-background-radius: 8px;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.3), 5, 0, 0, 1);
+}
+
+.button:hover {
+    -fx-background-color: #777;
+}
+
+.slider {
+    -fx-background-color: #444;
+}
+
+.progress-bar {
+    -fx-accent: #00ff00;
+}

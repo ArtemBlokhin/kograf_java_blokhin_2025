@@ -1,116 +1,249 @@
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+package org.example;
+
+import javafx.application.Application;
+import javafx.concurrent.Task;
+import javafx.geometry.Insets;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.input.Dragboard;
+import javafx.scene.input.TransferMode;
+import javafx.scene.layout.*;
+import javafx.stage.FileChooser;
+import javafx.stage.Stage;
+import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.scene.image.PixelWriter;
+import javafx.scene.image.WritableImage;
+import javafx.scene.image.Image;
+import javafx.scene.image.PixelFormat;
+
+import java.awt.image.BufferedImage;
+import java.nio.IntBuffer;
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import javax.imageio.ImageIO;
+import java.io.IOException;
 
-public class AppUI extends JFrame {
+public class AppUI extends Application {
 
-    private JLabel originalImageLabel;
-    private JLabel processedImageLabel;
-    private JSlider thresholdSlider;
+    private ImageView originalImageView = new ImageView();
+    private ImageView processedImageView = new ImageView();
+    private Label originalImageLabel = new Label("Исходное изображение");
+    private Label processedImageLabel = new Label("Обработанное изображение");
+    private Slider thresholdSlider = new Slider(0, 255, 128);
+    private ProgressBar progressBar = new ProgressBar(0);
     private BufferedImage originalImage;
     private BufferedImage processedImage;
-
     private ImageProcessor imageProcessor = new ImageProcessor();
     private PerformanceTimer performanceTimer = new PerformanceTimer();
+    private Label dragDropLabel = new Label("Перетащите изображение сюда 📂");
 
-    public AppUI() {
-        super("Object Highlighter");
-        setDefaultCloseOperation(EXIT_ON_CLOSE);
-        setSize(1000, 600);
-        setLocationRelativeTo(null);
-    }
+    @Override
+    public void start(Stage primaryStage) {
+        primaryStage.setTitle("🖼 Image Highlighter");
 
-    /**
-     * Инициализация UI: добавление кнопок, слайдера, панелей и т.д.
-     */
-    public void initUI() {
         // Верхняя панель с кнопками
-        JPanel topPanel = new JPanel();
-        JButton loadButton = new JButton("Загрузить изображение");
-        JButton processButton = new JButton("Обработать");
+        HBox topMenu = new HBox(15);
+        topMenu.setPadding(new Insets(10));
 
-        thresholdSlider = new JSlider(0, 255, 128);
-        thresholdSlider.setMajorTickSpacing(50);
-        thresholdSlider.setPaintTicks(true);
-        thresholdSlider.setPaintLabels(true);
+        Button loadButton = new Button("📂 Загрузить");
+        Button processButton = new Button("✨ Обработать");
+        Button saveButton = new Button("💾 Сохранить");
 
-        topPanel.add(loadButton);
-        topPanel.add(new JLabel("Порог:"));
-        topPanel.add(thresholdSlider);
-        topPanel.add(processButton);
+        thresholdSlider.setShowTickLabels(true);
+        thresholdSlider.setShowTickMarks(true);
+        thresholdSlider.setMajorTickUnit(50);
+        thresholdSlider.setBlockIncrement(10);
 
-        // Панель для изображений
-        JPanel imagePanel = new JPanel(new GridLayout(1, 2));
-        originalImageLabel = new JLabel("Исходное изображение");
-        processedImageLabel = new JLabel("Преобразованное изображение");
+        Label thresholdLabel = new Label("Порог: ");
+        thresholdLabel.setFont(Font.font(14));
+        thresholdLabel.setTextFill(Color.WHITE);
 
-        imagePanel.add(originalImageLabel);
-        imagePanel.add(processedImageLabel);
+        // Прогресс-бар
+        progressBar.setPrefWidth(200);
+        progressBar.setVisible(false);
 
-        // Добавляем панели в основной фрейм
-        getContentPane().add(topPanel, BorderLayout.NORTH);
-        getContentPane().add(imagePanel, BorderLayout.CENTER);
+        topMenu.getChildren().addAll(loadButton, thresholdLabel, thresholdSlider, processButton, saveButton, progressBar);
+        topMenu.setStyle("-fx-background-color: #333; -fx-padding: 10;");
+
+        // 🎯 Зона Drag & Drop
+        StackPane dragDropArea = new StackPane();
+        dragDropArea.setStyle("-fx-border-color: white; -fx-border-width: 2; -fx-padding: 20; -fx-background-color: #444;");
+        dragDropLabel.setTextFill(Color.WHITE);
+        dragDropLabel.setFont(Font.font(16));
+        dragDropArea.getChildren().add(dragDropLabel);
+        dragDropArea.setMinHeight(150);
+
+        // 🎯 Обработчики Drag & Drop
+        dragDropArea.setOnDragOver(event -> {
+            if (event.getGestureSource() != dragDropArea && event.getDragboard().hasFiles()) {
+                event.acceptTransferModes(TransferMode.COPY);
+            }
+            event.consume();
+        });
+
+        dragDropArea.setOnDragDropped(event -> {
+            Dragboard db = event.getDragboard();
+            if (db.hasFiles()) {
+                File file = db.getFiles().get(0);
+                loadImageFromFile(file);
+            }
+            event.setDropCompleted(true);
+            event.consume();
+        });
+
+        // 🎯 Контейнер изображений (сначала скрываем)
+        originalImageLabel.setVisible(false);
+        processedImageLabel.setVisible(false);
+
+        VBox originalImageBox = new VBox(5, originalImageLabel, originalImageView);
+        VBox processedImageBox = new VBox(5, processedImageLabel, processedImageView);
+        originalImageLabel.setTextFill(Color.WHITE);
+        processedImageLabel.setTextFill(Color.WHITE);
+        originalImageLabel.setFont(Font.font(14));
+        processedImageLabel.setFont(Font.font(14));
+
+        HBox imagesBox = new HBox(15);
+        imagesBox.setPadding(new Insets(20));
+        imagesBox.getChildren().addAll(originalImageBox, processedImageBox);
+
+        // 🎯 Главный контейнер
+        VBox root = new VBox(15);
+        root.setPadding(new Insets(20));
+        root.setStyle("-fx-background-color: #222;");
+        root.getChildren().addAll(topMenu, dragDropArea, imagesBox);
 
         // Обработчики событий
-        loadButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                loadImage();
-            }
-        });
+        loadButton.setOnAction(e -> openFileChooser(primaryStage));
+        processButton.setOnAction(e -> processImage());
+        saveButton.setOnAction(e -> saveImage(primaryStage));
 
-        processButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                processImage();
-            }
-        });
+        Scene scene = new Scene(root, 1000, 700);
+        scene.getStylesheets().add(getClass().getClassLoader().getResource("styles.css").toExternalForm());
 
-        setVisible(true);
+        primaryStage.setScene(scene);
+        primaryStage.show();
     }
 
     /**
-     * Метод загрузки изображения с диска.
-     * Не замеряем время — только чтение.
+     * Открытие диалогового окна для выбора изображения.
      */
-    private void loadImage() {
-        JFileChooser fileChooser = new JFileChooser();
-        if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
-            try {
-                originalImage = ImageIO.read(file);
-                originalImageLabel.setIcon(new ImageIcon(originalImage));
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Ошибка при загрузке изображения: " + ex.getMessage());
-            }
+    private void openFileChooser(Stage stage) {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Выберите изображение");
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Изображения", "*.png", "*.jpg", "*.jpeg", "*.bmp"));
+
+        File file = fileChooser.showOpenDialog(stage);
+        if (file != null) {
+            loadImageFromFile(file);
         }
     }
 
     /**
-     * Метод обработки изображения.
-     * Замеряем только время преобразования.
+     * Загружает изображение из файла и обновляет надпись.
+     */
+    private void loadImageFromFile(File file) {
+        try {
+            originalImage = ImageIO.read(file);
+            Image fxImage = new Image(file.toURI().toString());
+            originalImageView.setImage(fxImage);
+            originalImageView.setFitWidth(450);
+            originalImageView.setPreserveRatio(true);
+            dragDropLabel.setText("Изображение загружено ✅");
+            originalImageLabel.setText("Исходное изображение");
+            originalImageLabel.setVisible(true);
+            processedImageLabel.setVisible(false);
+        } catch (IOException ex) {
+            showAlert("Ошибка", "Ошибка загрузки изображения!");
+        }
+    }
+
+    /**
+     * Запускает обработку изображения и обновляет текст с временем обработки.
      */
     private void processImage() {
         if (originalImage == null) {
-            JOptionPane.showMessageDialog(this, "Сначала загрузите изображение!");
+            showAlert("Ошибка", "Сначала загрузите изображение!");
             return;
         }
 
-        // Настройки (порог берём из слайдера)
         ImageProcessingConfig config = new ImageProcessingConfig();
-        config.setThreshold(thresholdSlider.getValue());
+        config.setThreshold((int) thresholdSlider.getValue());
 
-        performanceTimer.start();
-        processedImage = imageProcessor.highlightObjects(originalImage, config);
-        long elapsedNs = performanceTimer.stop();
+        progressBar.setVisible(true);
 
-        processedImageLabel.setIcon(new ImageIcon(processedImage));
+        Task<Void> processingTask = new Task<>() {
+            @Override
+            protected Void call() {
+                performanceTimer.start();
+                processedImage = imageProcessor.highlightObjects(originalImage, config);
+                long elapsedNs = performanceTimer.stop();
+                updateMessage("Изображение загружено ✅ | Время обработки: " + (elapsedNs / 1_000_000) + " мс");
+                return null;
+            }
+        };
 
-        // Выводим время в мс
-        JOptionPane.showMessageDialog(this, "Время обработки: " + (elapsedNs / 1_000_000) + " мс");
+        processingTask.setOnSucceeded(e -> {
+            processedImageView.setImage(convertToFXImage(processedImage));
+            processedImageView.setFitWidth(450);
+            processedImageView.setPreserveRatio(true);
+            progressBar.setVisible(false);
+            processedImageLabel.setText("Обработанное изображение");
+            processedImageLabel.setVisible(true);
+            dragDropLabel.setText(processingTask.getMessage());
+        });
+
+        new Thread(processingTask).start();
+    }
+
+    private void saveImage(Stage stage) {
+        if (processedImage == null) {
+            showAlert("Ошибка", "Нет обработанного изображения!");
+            return;
+        }
+
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Сохранить изображение");
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PNG файлы", "*.png"));
+
+        File file = fileChooser.showSaveDialog(stage);
+        if (file != null) {
+            try {
+                ImageIO.write(processedImage, "png", file);
+                showAlert("Сохранение", "Изображение успешно сохранено!");
+            } catch (IOException ex) {
+                showAlert("Ошибка", "Ошибка при сохранении изображения!");
+            }
+        }
+    }
+
+    private void showAlert(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    private Image convertToFXImage(BufferedImage img) {
+        if (img == null) return null;
+
+        int width = img.getWidth();
+        int height = img.getHeight();
+        WritableImage writableImage = new WritableImage(width, height);
+        PixelWriter pixelWriter = writableImage.getPixelWriter();
+
+        int[] pixels = new int[width * height];
+        img.getRGB(0, 0, width, height, pixels, 0, width);
+
+        pixelWriter.setPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(), pixels, 0, width);
+
+        return writableImage;
+    }
+
+    public static void main(String[] args) {
+        launch(args);
     }
 }
